@@ -107,7 +107,7 @@
   #tickets .trow { display: flex; justify-content: space-between; align-items: center; gap: 10px;
                    background: var(--background); border-radius: var(--radius15); padding: 6px 10px; margin: 6px 0; }
   #tickets .trow a { color: var(--link); text-decoration: none; word-break: break-all; }
-  #tickets .trow button { height: 30px; padding: 0 16px; flex: none; background: var(--select); }
+  #tickets .trow button { padding: 0 16px; flex: none; background: var(--select); }
   #tickets .trow button:hover { background: var(--select-hover); }
   .slot, .rec { font: 13px/1.5 monospace; }
   #records table { border-collapse: collapse; width: 100%; margin-top: 8px; }
@@ -152,7 +152,7 @@
 </style>
 </head>
 <body>
-<h1>Горздрав СПб — автозапись <span class="muted">(профиль хранится в этом браузере)</span><span id="version">v0.1.2</span></h1>
+<h1>Горздрав СПб — автозапись <span class="muted">(профиль хранится в этом браузере)</span><span id="version">v0.1.3</span></h1>
 
 <section>
   <h2>1. Профили</h2>
@@ -794,10 +794,12 @@ function notifySlot(tgt, spec, doc, slot) {
 }
 
 /* ---------- панель найденных талонов ---------- */
+const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+const dowBadge = v => `<span class="badge">${DOW[new Date(v).getDay()]}</span> `; // день недели бейджем
 function renderTickets() {
   $('tickets').innerHTML = tickets.map((t, i) => `
     <div class="trow">
-      <a href="${portalLink(t.tgt.districtId, t.tgt.lpuId, t.spec.id, t.doc.id)}" target="_blank" rel="noreferrer">${t.slot.visitStart.replace('T', ' ')} — ${t.doc.name} — ${t.spec.name} (ЛПУ ${t.tgt.lpuId})</a>
+      <span>${dowBadge(t.slot.visitStart)}<a href="${portalLink(t.tgt.districtId, t.tgt.lpuId, t.spec.id, t.doc.id)}" target="_blank" rel="noreferrer">${t.slot.visitStart.replace('T', ' ')} — ${t.doc.name} — ${t.spec.name} (ЛПУ ${t.tgt.lpuId})</a></span>
       <button data-i="${i}">Записаться</button>
     </div>`).join('') || '<span class="muted">пока ничего не найдено</span>';
   $('tickets').querySelectorAll('button').forEach(b => b.onclick = async () => {
