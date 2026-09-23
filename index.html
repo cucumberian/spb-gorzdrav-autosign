@@ -191,7 +191,7 @@
   <div>
     <label>
       <input type="checkbox" id="autobook">
-      Автозапись — <b>без галочки</b> выводится только список талонов: кнопка ручной записи и ссылка на официальный сайт
+      Автозапись — <b>без галочки</b> выводится только список талонов: кнопка быстрой записи и ссылка на официальный сайт
     </label>
   </div>
   <div id="slot-alert"></div>
@@ -785,7 +785,7 @@ function renderTickets() {
   $('tickets').innerHTML = tickets.map((t, i) => `
     <div class="trow">
       <a href="${portalLink(t.tgt.districtId, t.tgt.lpuId, t.spec.id, t.doc.id)}" target="_blank" rel="noreferrer">${t.slot.visitStart.replace('T', ' ')} — ${t.doc.name} — ${t.spec.name} (ЛПУ ${t.tgt.lpuId})</a>
-      <button data-i="${i}">Записать</button>
+      <button data-i="${i}">Записаться</button>
     </div>`).join('') || '<span class="muted">пока ничего не найдено</span>';
   $('tickets').querySelectorAll('button').forEach(b => b.onclick = async () => {
     const t = tickets[+b.dataset.i];
