@@ -1,0 +1,1042 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Горздрав — автозапись</title>
+<style>
+  /* дизайн-язык по мотивам github.com/egorantonov/gorzdrav */
+  :root {
+    --radius15: 15px; --radius100: 100px;
+    --text: #333; --button-text: #fff; --background: #fff;
+    --link: #5b8dc7; --accent: #4d9c8e; --accent-hover: #40897d;
+    --accent-neutral: #54545421; --accent-transp: #4d9c8e2e;
+    --select: #7d5dc7; --select-hover: #8d72d2;
+    --cancel: #c25f5f; --cancel-hover: #d17676; --remove: #e6b8b8; --gray: #777;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --text: #ccc; --background: #222; --gray: #999; --link: #7fa9d8;
+      --accent: #58a192; --accent-hover: #4c8f83; --accent-neutral: #ffffff21;
+      --accent-transp: #58a19233;
+      --select: #8a6fd0; --select-hover: #9881da;
+      --cancel: #c87979; --remove: #e0adad;
+    }
+    input::placeholder { color: var(--gray); }
+  }
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Segoe UI', sans-serif;
+    max-width: 980px; margin: 16px auto; padding: 0 12px;
+    color: var(--text); background: var(--background);
+  }
+  h1 { color: var(--accent-hover); font-weight: 400; text-transform: uppercase;
+       font-size: 1.3em; margin: 8px 0 16px; position: relative; }
+  #version { position: absolute; right: 0; top: 2px; color: var(--gray);
+             font-size: .5em; font-weight: 400; text-transform: none; }
+  h2 { color: var(--accent-hover); text-transform: uppercase; font-weight: 600;
+       font-size: .95em; margin: 0; position: relative; padding-right: 130px; }
+  .who { position: absolute; right: 0; top: 0; color: var(--gray);
+         font-size: .78em; font-weight: 400; text-transform: none; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  p { padding: 0; margin: 0; }
+  section { background: var(--accent-transp); border-radius: var(--radius15);
+            padding: 14px; margin-bottom: 12px;
+            display: flex; flex-direction: column; gap: 10px; }
+  label { display: inline-block; min-width: 210px; }
+  input, select {
+    font: inherit; height: 32px; box-sizing: border-box;
+    border: 1px solid transparent; border-radius: var(--radius15);
+    padding: 0 7px; background: var(--background); color: var(--text); margin: 2px 0;
+  }
+  input:not([type="checkbox"]), select { min-width: 150px; }
+  select { max-width: min(280px, 100%); } /* названия поликлиник длинные — селектор не растягиваем */
+  h1 .muted, h2 .muted { text-transform: none; font-weight: 400; }
+  input[type="checkbox"] { height: auto; min-width: 0; }
+  button {
+    border: 0; border-radius: var(--radius100); height: 40px;
+    color: var(--button-text); background: var(--accent);
+    padding: 0 25px; text-transform: uppercase; font: inherit;
+    cursor: pointer; transition: background-color .2s ease-in-out;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled, button:hover:disabled { background: var(--gray); cursor: not-allowed; }
+  #add-target { background: var(--select); }
+  #add-target:hover { background: var(--select-hover); }
+  .cancel { background: var(--cancel); }
+  .cancel:hover { background: var(--cancel-hover); }
+#clear-log { width: 26px; height: 26px; padding: 0; border-radius: 50%;
+             line-height: 1; font-size: 16px; background: var(--cancel);
+             vertical-align: middle; }
+  #clear-log:hover { background: var(--cancel-hover); }
+  #log { background: #141414; color: #93b893; font: 12px/1.4 monospace; white-space: pre-wrap;
+         word-break: break-all; max-height: 320px; overflow-y: auto; padding: 8px; border-radius: 6px; }
+  .err { color: var(--cancel); } .ok { color: var(--accent-hover); }
+  .muted { color: var(--gray); font-size: .9em; }
+  #monitor-state { font-weight: bold; }
+  /* цели мониторинга — карточки как .patient в референсе */
+  .target { background: var(--background); border: 1px solid var(--accent-neutral);
+            border-radius: var(--radius15); padding: 8px 10px; margin: 6px 0; }
+  .badge { background: var(--accent-transp); border-radius: var(--radius100);
+           padding: 1px 8px; font-size: .85em; }
+  .badge[data-s], .badge[data-p] { cursor: pointer; } /* клик — убрать из цели */
+  /* профили — как .patient в github.com/egorantonov/gorzdrav */
+  .patient { display: flex; border: 1px solid transparent; border-radius: var(--radius15);
+             overflow: hidden; flex-direction: row; justify-content: space-between;
+             margin-bottom: 10px; cursor: pointer; }
+  .patient:hover { border-color: var(--accent-neutral); }
+  .patient.selected { border-color: var(--accent); }
+  .patient_info { background-color: var(--accent-transp); width: 85%; padding: 10px; }
+  .patient_info:hover { background-color: var(--accent-neutral); }
+  .patient.selected .patient_info { background-color: var(--accent-neutral); }
+  .patient_name { margin-bottom: 5px; font-weight: 600; }
+  .patient_birthday { color: var(--gray); font-size: 14px; }
+  .patient_remove { width: 15%; background-color: var(--remove); font-weight: 700;
+                    display: flex; align-items: center; justify-content: center; color: #000; }
+  .patient_remove:hover { background-color: var(--cancel-hover); color: var(--button-text); }
+  .rm { background: var(--remove); color: #000; height: 26px; width: 30px;
+        padding: 0; font-weight: 700; vertical-align: middle; }
+  .rm:hover { background: var(--cancel-hover); color: var(--button-text); }
+  /* уведомление о талоне — как .lpu_appointment_visit в референсе */
+  #slot-alert .slot { background: var(--accent); color: var(--button-text);
+                      border-radius: var(--radius15); padding: 10px; margin-top: 8px;
+                      font-weight: 700; }
+  #slot-alert .slot a { color: var(--button-text); text-decoration: underline; }
+  #slot-alert .slot .muted { color: var(--accent-transp); font-weight: 400; }
+  #tickets .trow { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+                   background: var(--background); border-radius: var(--radius15); padding: 6px 10px; margin: 6px 0; }
+  #tickets .trow a { color: var(--link); text-decoration: none; word-break: break-all; }
+  #tickets .trow button { height: 30px; padding: 0 16px; flex: none; background: var(--select); }
+  #tickets .trow button:hover { background: var(--select-hover); }
+  .slot, .rec { font: 13px/1.5 monospace; }
+  #records table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  #records th { background: var(--accent-transp); color: var(--accent-hover); }
+  #records td, #records th { border: 1px solid var(--accent-neutral);
+         padding: 4px 6px; text-align: left; font-size: 13px; }
+  /* свой выпадающий список ЛПУ вместо нативного select (длинные названия не обрезаются) */
+  .hidden { display: none !important; }
+  #lpu-btn { background: var(--background); color: var(--text);
+             border: 1px solid var(--accent-neutral); text-transform: none; }
+  #lpu-btn:hover { background: var(--accent-neutral); }
+  .popup { z-index: 5; position: fixed; inset: 0; background: #0007;
+           backdrop-filter: blur(5px); }
+  .popup_container { display: flex; flex-direction: column; height: 100%;
+           max-width: 560px; margin: 0 auto; background: var(--background);
+           overflow: hidden; border-top: var(--accent) 1.5px solid;
+           border-top-left-radius: 25px; border-top-right-radius: 25px; }
+  .popup_header { flex: none; height: 48px; padding: 0 12px;
+           display: flex; align-items: center; justify-content: space-between;
+           font-weight: 600; color: var(--accent-hover); text-transform: uppercase;
+           font-size: .9em; }
+  #lpu-close { height: 30px; width: 30px; padding: 0; border-radius: 50%;
+           background: var(--remove); color: #000; text-transform: none; }
+  #lpu-close:hover { background: var(--cancel-hover); color: var(--button-text); }
+  .popup_content { flex: 1; overflow-y: auto; padding: 10px; }
+  .chips { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 10px 8px; }
+  .chip { height: 28px; padding: 0 12px; font-size: 12px; border: 1px solid transparent;
+          border-radius: var(--radius100); background: var(--accent-transp);
+          color: var(--text); text-transform: none; }
+  .chip:hover { background: var(--accent-neutral); }
+  .chip.on { background: var(--accent); color: var(--button-text); font-weight: 600; }
+  .chip.on:hover { background: var(--accent-hover); }
+  .lpu-group { color: var(--accent-hover); text-transform: uppercase; font-weight: 600;
+           font-size: .8em; margin: 12px 0 6px; }
+  .lpu-group:first-child { margin-top: 0; }
+  .lpu-item { padding: 10px; border-radius: var(--radius15);
+           border: 1px solid transparent; background: var(--accent-transp);
+           margin-bottom: 8px; cursor: pointer; }
+  .lpu-item:hover { background: var(--accent-neutral); }
+  .lpu-item.selected { border-color: var(--accent); background: var(--accent-neutral); }
+  .lpu-item-addr { color: var(--gray); font-size: 13px; margin-top: 3px; }
+</style>
+</head>
+<body>
+<h1>Горздрав СПб — автозапись <span class="muted">(профиль хранится в этом браузере)</span><span id="version">v0.1.0</span></h1>
+
+<section>
+  <h2>1. Профили пациентов</h2>
+  <div id="profiles"></div>
+  <div>
+    <button id="new-profile">＋ новый профиль</button>
+    <span id="editing-state" class="muted">новый профиль</span>
+  </div>
+  <div><label>Фамилия *</label><input id="p_lastName"></div>
+  <div><label>Имя *</label><input id="p_firstName"></div>
+  <div><label>Отчество</label><input id="p_middleName"></div>
+  <div><label>Дата рождения * (дд.мм.гггг)</label><input id="p_birthDate"></div>
+  <div><label>Почта для талона</label><input id="p_email" type="email"></div>
+  <div><label>Телефон</label><input id="p_phone" placeholder="1118884477"></div>
+  <div><button id="save-profile">Сохранить профиль</button>
+       <span id="profile-state" class="muted"></span></div>
+</section>
+
+<section>
+  <h2>2. Мониторинг: район → медучреждение → специальность <span class="who"></span></h2>
+  <div><label>Район</label><select id="district"><option>— загрузить —</option></select></div>
+  <div><label>Медучреждение</label>
+    <button id="lpu-btn" type="button">— выбрать — ▾</button>
+    <select id="lpu" hidden><option>—</option></select></div>
+  <div id="lpu-caption" class="muted"></div>
+  <div><button id="refresh-specs" type="button">Обновить специальности</button></div>
+  <div><label>Искать по названию</label><input id="spec-pattern" placeholder="ортопед, травматолог"></div>
+  <div id="specialties" class="muted">специальности появятся после выбора ЛПУ (выбрать можно и с 0 талонов)</div>
+  <button id="add-target" disabled>Добавить в мониторинг</button>
+  <div id="targets"></div>
+</section>
+
+<section>
+  <h2>3. Запуск <span class="who"></span></h2>
+  <div><button id="toggle">▶ Старт мониторинга</button>
+       <span id="monitor-state" class="muted">остановлен</span></div>
+  <div><label>Интервал опроса, сек</label><input id="p_interval" value="10" size="4"></div>
+  <div>
+    <label>
+      <input type="checkbox" id="autobook">
+      Автозапись — <b>без галочки</b> выводится только список талонов: кнопка ручной записи и ссылка на официальный сайт
+    </label>
+  </div>
+  <div id="slot-alert"></div>
+  <div class="muted">новый талон → patient/search → appointment/create → контроль (лог ниже)</div>
+</section>
+
+<section id="records">
+  <h2>4. Мои записи <span class="muted">(достаточно выбрать поликлинику в разделе 2 — специальность не нужна)</span><span class="who"></span></h2>
+  <button id="load-records">Показать</button>
+  <div id="records-list" class="muted">не загружено</div>
+</section>
+
+<section>
+  <h2>Найденные талоны <span class="muted">(слева — ссылка на портал, справа — быстрая запись)</span></h2>
+  <div id="tickets"><span class="muted">пока ничего не найдено</span></div>
+</section>
+
+<section>
+  <h2>Лог запросов <button id="clear-log" title="очистить">×</button></h2>
+  <pre id="log"></pre>
+</section>
+
+<!-- выпадающий выбор медучреждения: свой попап, нативный select скрыт -->
+<div id="lpu-popup" class="popup hidden">
+  <div class="popup_container">
+    <div class="popup_header">
+      <span>Медучреждение</span>
+      <button id="lpu-close" type="button" title="закрыть">✕</button>
+    </div>
+    <div id="lpu-groups" class="chips"></div>
+    <div class="popup_content" id="lpu-list"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const API = 'https://gorzdrav.spb.ru/_api/api/v2';
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- лог ---------- */
+let logLines = [];
+let tickets = []; // найденные талоны текущей сессии (список в разделе «Найденные талоны»)
+function log(msg, cls) {
+  const t = new Date().toTimeString().slice(0, 8);
+  logLines.push(`${t} ${msg}`);
+  if (logLines.length > 500) logLines.shift();
+  const el = $('log');
+  el.textContent = logLines.join('\n');
+  el.scrollTop = el.scrollHeight;
+  if (cls) { /* reserved */ }
+}
+
+/* ---------- токен: сервер выдаёт его заголовком token каждого ответа ---------- */
+let TOKEN = localStorage.getItem('gz_token') || '';
+
+async function api(path, opts = {}) {
+  const headers = { 'Accept': 'application/json' };
+  if (TOKEN) headers['token'] = TOKEN;
+  if (opts.body) headers['Content-Type'] = 'application/json';
+  const method = opts.method || 'GET';
+  log(`→ ${method} ${path}${opts.body ? ' ' + opts.body : ''}`);
+  const r = await fetch(API + path, { method, headers, body: opts.body });
+  const issued = r.headers.get('token');
+  if (issued) { TOKEN = issued; localStorage.setItem('gz_token', issued); }
+  let data;
+  try { data = await r.json(); }
+  catch { throw Object.assign(new Error('не-JSON ответ (HTTP ' + r.status + ')'), { retry: true }); }
+  if (!data.success) {
+    log(`← errorCode=${data.errorCode} ${data.message || ''}`);
+    const e = new Error(data.message || ('errorCode ' + data.errorCode));
+    e.errorCode = data.errorCode;
+    // 37/38/39 — штатное «нет мест», 602/603/616 — временный сбой МИС
+    e.retry = [37, 38, 39, 602, 603, 616, 660].includes(data.errorCode);
+    throw e;
+  }
+  log(`← ok`);
+  return data.result;
+}
+
+const enc = o => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+
+/* ---------- конфиг в localStorage ---------- */
+function loadCfg() {
+  try { return JSON.parse(localStorage.getItem('gz_cfg')) || { patient: null, profiles: [], interval: 10 }; }
+  catch { return { patient: null, profiles: [], interval: 10 }; }
+}
+function saveCfg(cfg) { localStorage.setItem('gz_cfg', JSON.stringify(cfg)); }
+
+function getPatient() {
+  const p = loadCfg().patient;
+  if (!p) throw new Error('сначала заполни профиль (раздел 1)');
+  return p;
+}
+
+/* ---------- профили ---------- */
+let editingId = null; // id редактируемого профиля, null = новый
+
+function normCfg() { // миграции: одиночный patient → список, глобальные цели → внутрь профиля
+  const cfg = loadCfg();
+  let changed = false;
+  if (!Array.isArray(cfg.profiles)) {
+    cfg.profiles = cfg.patient ? [{ id: Date.now(), targets: [], ...cfg.patient }] : [];
+    changed = true;
+  }
+  for (const p of cfg.profiles)
+    if (!Array.isArray(p.targets)) { p.targets = []; changed = true; }
+  if (Array.isArray(cfg.targets)) { // старые цели переходили выбранному тогда профилю
+    const m = (cfg.patient && (
+        cfg.profiles.find(x => x.id === cfg.patient.id) ||
+        cfg.profiles.find(x => x.lastName === cfg.patient.lastName && x.birthDate === cfg.patient.birthDate))) ||
+      cfg.profiles[0];
+    if (m && !m.targets.length) m.targets = cfg.targets;
+    delete cfg.targets;
+    changed = true;
+  }
+  if (cfg.patient && (cfg.patient.id == null || !Array.isArray(cfg.patient.targets))) {
+    const m = cfg.profiles.find(x => x.id === cfg.patient.id) ||
+      cfg.profiles.find(x => x.lastName === cfg.patient.lastName && x.birthDate === cfg.patient.birthDate);
+    if (m) { cfg.patient = { ...m }; changed = true; } // канонический объект: id + targets
+  }
+  if (changed) saveCfg(cfg);
+  return cfg;
+}
+const targetsOf = cfg => (cfg.patient && cfg.patient.targets) || [];
+function saveTargets(cfg) { // цели живут в профиле — синхронизируем запись в списке
+  const p = cfg.patient && cfg.profiles.find(x => x.id === cfg.patient.id);
+  if (p) p.targets = cfg.patient.targets;
+  saveCfg(cfg);
+}
+const fullName = p => `${p.lastName} ${p.firstName} ${p.middleName || ''}`.trim();
+
+function renderWho() { // выбранный профиль: метки секций 2–4 + выбор ЛПУ
+  const p = loadCfg().patient;
+  const t = p ? `${p.lastName} ${p.firstName}` : 'профиль не выбран';
+  document.querySelectorAll('.who').forEach(el => el.textContent = t);
+  // выбор ЛПУ принадлежит профилю: подставляем его цели или убираем чужой
+  syncLpuToProfile().catch(() => {}); // ошибки api уже в логе
+}
+
+function fillForm(p) {
+  $('p_lastName').value = p.lastName || '';
+  $('p_firstName').value = p.firstName || '';
+  $('p_middleName').value = p.middleName || '';
+  $('p_birthDate').value = p.birthDateDotted || '';
+  $('p_email').value = p.email || '';
+  $('p_phone').value = p.phone || '';
+}
+
+function renderProfile() {
+  const cfg = normCfg();
+  const p = cfg.patient;
+  if (!p) { renderProfiles(); return; }
+  fillForm(p);
+  const m = cfg.profiles.find(x => x.id === editingId)
+         || cfg.profiles.find(x => x.lastName === p.lastName && x.birthDate === p.birthDate);
+  editingId = m ? m.id : null;
+  if (m) $('editing-state').textContent = 'редактируется: ' + fullName(m);
+  renderProfiles();
+}
+
+function renderProfiles() {
+  const cfg = normCfg();
+  $('profiles').innerHTML = cfg.profiles.length ? cfg.profiles.map(p => `
+    <div class="patient ${p.id === editingId ? 'selected' : ''}" data-id="${p.id}">
+      <div class="patient_info">
+        <div class="patient_name">${fullName(p)}</div>
+        <div class="patient_birthday">род. ${p.birthDateDotted || '—'}${p.phone ? ' · 📞 ' + p.phone : ''}${p.email ? ' · ✉ ' + p.email : ''}</div>
+      </div>
+      <div class="patient_remove" data-del="${p.id}" title="удалить профиль">✕</div>
+    </div>`).join('')
+    : '<div class="muted">профилей нет — заполни форму ниже и нажми «Сохранить профиль»</div>';
+
+  $('profiles').querySelectorAll('.patient').forEach(el => el.onclick = e => {
+    if (e.target.dataset.del) return;
+    const cfg2 = normCfg();
+    const prof = cfg2.profiles.find(x => String(x.id) === el.dataset.id);
+    if (!prof) return;
+    editingId = prof.id;
+    cfg2.patient = { ...prof };
+    saveCfg(cfg2);
+    fillForm(cfg2.patient);
+    $('editing-state').textContent = 'редактируется: ' + fullName(prof);
+    renderProfiles();
+    renderWho();
+    renderTargets(); // цели живут в профиле — показываем его список
+    log('выбран профиль: ' + fullName(prof));
+  });
+
+  $('profiles').querySelectorAll('.patient_remove').forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    const cfg2 = normCfg();
+    const id = +el.dataset.del;
+    const prof = cfg2.profiles.find(x => x.id === id);
+    cfg2.profiles = cfg2.profiles.filter(x => x.id !== id);
+    if (editingId === id) { // удалили редактируемый — переключаемся на первый оставшийся
+      const nx = cfg2.profiles[0] || null;
+      editingId = nx ? nx.id : null;
+      if (nx) {
+        cfg2.patient = { ...nx };
+        fillForm(cfg2.patient);
+        $('editing-state').textContent = 'редактируется: ' + fullName(nx);
+      } else {
+        cfg2.patient = null;
+        fillForm({});
+        $('editing-state').textContent = 'новый профиль';
+      }
+    }
+    saveCfg(cfg2);
+    renderProfiles();
+    renderWho();
+    renderTargets();
+    log('профиль удалён: ' + (prof ? fullName(prof) : id));
+  });
+}
+
+$('new-profile').onclick = () => {
+  editingId = null;
+  fillForm({});
+  $('editing-state').textContent = 'новый профиль';
+  $('profile-state').textContent = '';
+  renderProfiles();
+};
+
+function parseBirthdate(text) {
+  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(text.trim());
+  if (!m) throw new Error('дата: формат дд.мм.гггг');
+  const [, d, mo, y] = m;
+  return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}T00:00:00`;
+}
+function normalizePhone(raw) {
+  const digits = (raw || '').replace(/\D/g, '');
+  return (digits.length === 11 && '78'.includes(digits[0])) ? digits.slice(1) : digits;
+}
+$('save-profile').onclick = () => {
+  try {
+    const cfg = normCfg();
+    const birthDateDotted = $('p_birthDate').value.trim();
+    const patient = {
+      lastName: $('p_lastName').value.trim(),
+      firstName: $('p_firstName').value.trim(),
+      middleName: $('p_middleName').value.trim(),
+      birthDate: parseBirthdate(birthDateDotted),
+      birthDateDotted,
+      email: $('p_email').value.trim(),
+      phone: normalizePhone($('p_phone').value),
+    };
+    if (!patient.lastName || !patient.firstName) throw new Error('фамилия и имя обязательны');
+    if (editingId != null && cfg.profiles.some(p => p.id === editingId)) {
+      const i = cfg.profiles.findIndex(p => p.id === editingId);
+      cfg.profiles[i] = { ...cfg.profiles[i], ...patient, id: editingId };
+    } else {
+      editingId = Date.now();
+      cfg.profiles.push({ ...patient, id: editingId, targets: [] });
+    }
+    cfg.patient = { ...(cfg.profiles.find(p => p.id === editingId)) }; // выбранный = сохранённый (с целями)
+    saveCfg(cfg);
+    $('profile-state').textContent = 'сохранено';
+    $('profile-state').className = 'ok';
+    $('editing-state').textContent = 'редактируется: ' + fullName(patient);
+    renderProfiles();
+    renderWho();
+    renderTargets(); // цели нового/обновлённого профиля
+    log(`профиль сохранён: ${fullName(patient)}`);
+  } catch (e) {
+    $('profile-state').textContent = e.message;
+    $('profile-state').className = 'err';
+  }
+};
+
+$('p_interval').onchange = () => { // интервал — глобальный (раздел 3), не привязан к профилю
+  const cfg = loadCfg();
+  cfg.interval = Math.max(5, parseInt($('p_interval').value, 10) || 10);
+  $('p_interval').value = cfg.interval;
+  saveCfg(cfg);
+  log('интервал опроса: ' + cfg.interval + 's');
+};
+
+/* ---------- выбор район/ЛПУ/специальности ---------- */
+let districts = [], lpus = [], specialties = [], currentDistrict = null, currentLpu = null;
+let lpuUserPicked = false; // пользователь сам выбрал поликлинику в разделе 2
+
+async function initGeo() {
+  districts = await api('/shared/districts');
+  const sel = $('district');
+  sel.innerHTML = districts.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+  currentDistrict = districts[0];
+  await loadLpus();
+}
+$('district').onchange = async () => {
+  currentDistrict = districts.find(d => d.id === $('district').value);
+  await loadLpus();
+};
+let geoPromise = null;
+const geoReady = () => (geoPromise ||= initGeo()); // initGeo ровно один раз: init и смена профиля
+
+async function syncLpuToProfile() { // раздел 2: выбор ЛПУ = цели выбранного профиля
+  try { await geoReady(); } catch { return; } // без справочников синхронизировать нечего
+  const t = targetsOf(normCfg())[0];
+  const clear = () => { // выбор другого пользователя — убираем
+    if (!currentLpu && !$('lpu').value) return; // уже пусто — плейсхолдер не трогаем
+    $('lpu').value = '';
+    currentLpu = null;
+    lpuUserPicked = false;
+    specialties = [];
+    $('specialties').innerHTML =
+      'специальности появятся после выбора ЛПУ (выбрать можно и с 0 талонов)';
+    $('add-target').disabled = true;
+    updateLpuCaption();
+  };
+  if (!t) return clear(); // у профиля нет ЛПУ — выбранного быть не должно
+  if (String(t.districtId) !== String(currentDistrict.id)) {
+    const d = districts.find(x => String(x.id) === String(t.districtId));
+    if (!d) return clear();
+    currentDistrict = d;
+    $('district').value = d.id;
+    await loadLpus();
+  }
+  const l = lpus.find(x => String(x.id) === String(t.lpuId));
+  if (!l) return clear(); // ЛПУ профиля не показывается API
+  if (currentLpu && String(currentLpu.id) === String(l.id)) return; // уже выбрано — галочки не сбрасываем
+  $('lpu').value = l.id;
+  currentLpu = l;
+  lpuUserPicked = true;
+  updateLpuCaption();
+  await loadSpecialties();
+}
+async function loadLpus() {
+  lpus = await api(`/shared/district/${currentDistrict.id}/lpus`);
+  // группировка по типу lpuType нативными <optgroup>
+  const groups = new Map();
+  for (const l of lpus) {
+    const k = l.lpuType || 'Прочее';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(l);
+  }
+  for (const arr of groups.values()) // по алфавиту по названию
+    arr.sort((a, b) => String(a.lpuFullName || a.id)
+      .localeCompare(String(b.lpuFullName || b.id), 'ru'));
+  $('lpu').innerHTML = [...groups].map(([type, arr]) => `
+    <optgroup label="${type}">${arr.map(l =>
+      `<option value="${l.id}">${l.lpuFullName || l.id} — ${l.address || ''}</option>`).join('')}
+    </optgroup>`).join('') || '<option>—</option>';
+  updateLpuCaption();
+  await loadSpecialties();
+}
+
+// полное название выбранной поликлиники: подпись под селектором (переносится
+// на несколько строк) + тултип на самом селекторе; внутри выпадающего списка
+// нативный <select> не умеет многострочные опции — это ограничение браузера
+function updateLpuCaption() {
+  const l = lpus.find(x => String(x.id) === $('lpu').value);
+  const text = l ? `${l.lpuFullName || ''} — ${l.address || ''}` : '';
+  $('lpu').title = text;
+  $('lpu-caption').textContent = text;
+  $('lpu-btn').textContent = l ? `${l.lpuShortName || l.lpuFullName} ▾` : '— выбрать — ▾';
+}
+
+/* попап выбора ЛПУ: нативный <select> скрыт и хранит только value,
+   список рисуем сами — полные многострочные названия + группы по lpuType */
+let lpuFilter = 'Все';
+function renderLpuList() {
+  const groups = new Map();
+  for (const l of lpus) {
+    const k = l.lpuType || 'Прочее';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(l);
+  }
+  for (const arr of groups.values()) // по алфавиту по названию
+    arr.sort((a, b) => String(a.lpuFullName || a.id)
+      .localeCompare(String(b.lpuFullName || b.id), 'ru'));
+  if (lpuFilter !== 'Все' && !groups.has(lpuFilter)) lpuFilter = 'Все';
+  // чипсы групп сверху — фильтр, чтобы не листать весь список
+  $('lpu-groups').innerHTML = ['Все', ...groups.keys()].map(n =>
+    `<button type="button" class="chip ${n === lpuFilter ? 'on' : ''}" data-g="${n}">${n}</button>`).join('');
+  $('lpu-groups').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+    lpuFilter = b.dataset.g;
+    renderLpuList();
+  });
+  const cur = $('lpu').value;
+  const shown = [...groups].filter(([type]) => lpuFilter === 'Все' || type === lpuFilter);
+  $('lpu-list').innerHTML = shown.map(([type, arr]) => `
+    <div class="lpu-group">${type}</div>` + arr.map(l => `
+    <div class="lpu-item ${String(l.id) === cur ? 'selected' : ''}" data-id="${l.id}">
+      <div>${l.lpuFullName || l.id}</div>
+      <div class="lpu-item-addr">📍 ${l.address || ''}</div>
+    </div>`).join('')).join('');
+  $('lpu-list').querySelectorAll('.lpu-item').forEach(el => el.onclick = () => {
+    $('lpu').value = el.dataset.id;
+    $('lpu').dispatchEvent(new Event('change')); // дальше всё как при нативном select
+    $('lpu-popup').classList.add('hidden');
+  });
+}
+$('lpu-btn').onclick = () => { renderLpuList(); $('lpu-popup').classList.remove('hidden'); };
+$('lpu-close').onclick = () => $('lpu-popup').classList.add('hidden');
+$('lpu-popup').onclick = e => { if (e.target.id === 'lpu-popup') $('lpu-popup').classList.add('hidden'); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') $('lpu-popup').classList.add('hidden');
+});
+
+$('lpu').onchange = () => { lpuUserPicked = true; loadSpecialties(); };
+async function loadSpecialties() {
+  currentLpu = lpus.find(l => String(l.id) === $('lpu').value);
+  if (!currentLpu) return; // значение не из этого района (например, после смены района)
+  updateLpuCaption();
+  try { specialties = await api(`/schedule/lpu/${currentLpu.id}/specialties`); }
+  catch (e) { specialties = []; if (e.errorCode !== 37) log('specialties: ' + e.message); }
+  if (!specialties.length) {
+    $('specialties').innerHTML = '<span class="err">в этом ЛПУ нет специальностей для записи</span>';
+    $('add-target').disabled = true;
+    return;
+  }
+  const keep = new Set([...document.querySelectorAll('.spec:checked')].map(c => c.value)); // галочки переживают обновление
+  const tgt = targetsOf(normCfg()).find(t => String(t.lpuId) === String(currentLpu.id));
+  const tgtFer = new Set((tgt ? tgt.specialties : []).map(x => String(x.ferId))); // состояние цели — в чекбоксах
+  $('specialties').innerHTML = specialties.map(s => `
+    <label class="slot">
+      <input type="checkbox" class="spec" value="${s.id}" data-fer="${s.ferId || ''}" data-name="${s.name}"${keep.has(String(s.id)) || tgtFer.has(String(s.ferId)) ? ' checked' : ''}>
+      ${s.name} <span class="muted">[${s.id}/ferId=${s.ferId}] мест ${s.countFreeParticipant || 0}</span>
+    </label>`).join('<br>');
+  $('add-target').disabled = false;
+}
+$('refresh-specs').onclick = async () => { // тот же ЛПУ, без пере-выбора
+  if (!currentLpu) { log('специальности: сначала выбери медучреждение', 'err'); return; }
+  log(`специальности: обновляю ЛПУ ${currentLpu.id}…`);
+  await loadSpecialties();
+  log(specialties.length
+    ? `специальности: получено ${specialties.length} (галочки сохранены)`
+    : 'специальности: список пуст — попробуй обновить ещё раз');
+};
+function renderTargets() {
+  const cfg = normCfg();
+  $('targets').innerHTML = targetsOf(cfg).map((t, i) => `
+    <div class="target">
+      <b>ЛПУ ${t.lpuId}</b> <span class="muted">${t.lpuName || ''} (${t.districtName || ''})</span>
+      <button data-i="${i}" class="rm">✕</button><br>
+      ${t.specialties.map((s, si) =>
+        `<span class="badge" data-t="${i}" data-s="${si}" title="убрать специальность">${s.name} (ferId=${s.ferId}) ✕</span>`).join(' ')}
+      ${(t.patterns || []).map((p, pi) =>
+        `<span class="badge" data-t="${i}" data-p="${pi}" title="убрать запрос">🔍 ${p} ✕</span>`).join(' ')}
+    </div>`).join('') || '<div class="muted">пока ничего не добавлено</div>';
+  document.querySelectorAll('.rm').forEach(b => b.onclick = () => {
+    const cfg2 = normCfg();
+    const removed = targetsOf(cfg2).splice(+b.dataset.i, 1)[0];
+    // удалили цель той же поликлиники, что выбрана в списке — перестаём и её опрашивать
+    if (removed && currentLpu && String(removed.lpuId) === String(currentLpu.id))
+      lpuUserPicked = false;
+    saveTargets(cfg2);
+    renderTargets();
+  });
+  // бейдж запроса: клик — убрать паттерн из цели
+  $('targets').querySelectorAll('.badge[data-p]').forEach(el => el.onclick = () => {
+    const cfg2 = normCfg();
+    const t = targetsOf(cfg2)[+el.dataset.t];
+    if (!t) return;
+    const p = t.patterns.splice(+el.dataset.p, 1)[0];
+    const empty = !t.specialties.length && !t.patterns.length;
+    if (empty) targetsOf(cfg2).splice(+el.dataset.t, 1); // нечем опрашивать — убираем цель целиком
+    saveTargets(cfg2);
+    renderTargets();
+    log(empty
+      ? `цель ЛПУ ${t.lpuId} пуста — убрана из мониторинга`
+      : `убрано: запрос «${p}» — ЛПУ ${t.lpuId}`);
+  });
+  // бейдж специальности: клик — убрать её из цели
+  $('targets').querySelectorAll('.badge[data-s]').forEach(el => el.onclick = () => {
+    const cfg2 = normCfg();
+    const t = targetsOf(cfg2)[+el.dataset.t];
+    if (!t) return;
+    const sp = t.specialties.splice(+el.dataset.s, 1)[0];
+    const empty = !t.specialties.length && !(t.patterns || []).length;
+    if (empty) targetsOf(cfg2).splice(+el.dataset.t, 1); // нечем опрашивать — убираем цель целиком
+    saveTargets(cfg2);
+    renderTargets();
+    log(empty
+      ? `цель ЛПУ ${t.lpuId} пуста — убрана из мониторинга`
+      : `убрано: ${sp ? sp.name : '?'} — ЛПУ ${t.lpuId}`);
+  });
+}
+$('add-target').onclick = () => {
+  const picked = [...document.querySelectorAll('.spec:checked')].map(cb => ({
+    ferId: cb.dataset.fer,
+    name: cb.dataset.name || cb.parentElement.textContent.trim().split(' мест')[0],
+  }));
+  const patterns = $('spec-pattern').value.split(',')
+    .map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (!picked.length && !patterns.length) {
+    log('выбери специальности чекбоксами или впиши запрос по названию', 'err');
+    return;
+  }
+  const cfg = normCfg();
+  if (!cfg.patient) { log('сначала сохрани профиль (раздел 1) — цели хранятся внутри профиля', 'err'); return; }
+  const list = targetsOf(cfg);
+  const existing = list.find(t => String(t.lpuId) === String(currentLpu.id));
+  let dropped = [];
+  if (existing) {
+    // чекбоксы = состав цели: снял галку → специальность убрана, мониторинг её больше не опрашивает
+    dropped = existing.specialties.filter(s => !picked.some(p => p.ferId === s.ferId));
+    existing.specialties = picked;
+    if (!Array.isArray(existing.patterns)) existing.patterns = [];
+    for (const p of patterns) if (!existing.patterns.includes(p)) existing.patterns.push(p);
+  } else {
+    list.push({
+      lpuId: currentLpu.id,
+      lpuName: currentLpu.lpuShortName || currentLpu.lpuFullName || '',
+      districtId: String(currentDistrict.id),
+      districtName: currentDistrict.name,
+      specialties: picked,
+      patterns,
+    });
+  }
+  saveTargets(cfg);
+  renderTargets();
+  $('spec-pattern').value = ''; // запрос переехал в цель
+  const what = [
+    picked.map(s => s.name).join(', '),
+    patterns.map(p => 'запрос «' + p + '»').join(', '),
+  ].filter(Boolean).join(' + ');
+  log(`добавлено: ЛПУ ${currentLpu.id} — ${what}`);
+  if (dropped.length)
+    log(`убрано из цели ЛПУ ${currentLpu.id}: ${dropped.map(s => s.name).join(', ')} — мониторинг больше не опрашивает`);
+  // цель изменилась — сбрасываем дедупликацию этой поликлиники, иначе уже
+  // объявленные талоны не попадут ни в панель, ни в лог (как с запросом «диспанс»)
+  const stale = Object.keys(localStorage).filter(k => k.startsWith(`gz_seen:${currentLpu.id}:`));
+  stale.forEach(k => localStorage.removeItem(k));
+  if (stale.length)
+    log(`дедупликация ЛПУ ${currentLpu.id}: сброшено врачей ${stale.length} — текущие талоны объявятся заново`);
+};
+
+/* ---------- кэш patientId и виденные слоты ---------- */
+const pidKey = lpu => `gz_pid_${lpu}`;
+async function patientIdFor(lpuId) {
+  const cached = localStorage.getItem(pidKey(lpuId));
+  if (cached) return cached;
+  const p = getPatient();
+  try {
+    const result = await api('/patient/search?' + enc({
+      lpuId, lastName: p.lastName, firstName: p.firstName,
+      middleName: p.middleName || '', birthdate: p.birthDate, birthdateValue: p.birthDateDotted,
+    }));
+    if (!result) throw new Error('пустой patientId');
+    localStorage.setItem(pidKey(lpuId), String(result));
+    return String(result);
+  } catch (e) {
+    e.retry = true; // patient/search не создан — ретраим следующим циклом
+    throw e;
+  }
+}
+const seenKey = (l, d) => `gz_seen:${l}:${d}`;
+const getSeen = (l, d) => new Set(JSON.parse(localStorage.getItem(seenKey(l, d)) || '[]'));
+const setSeen = (l, d, set) => localStorage.setItem(seenKey(l, d), JSON.stringify([...set]));
+
+/* ---------- чекбокс автозаписи ---------- */
+function renderAutobook() { $('autobook').checked = !!loadCfg().autobook; }
+$('autobook').onchange = () => {
+  const cfg = loadCfg();
+  cfg.autobook = $('autobook').checked;
+  saveCfg(cfg);
+  log(cfg.autobook
+    ? 'автозапись ВКЛЮЧЕНА — при талоне запишу автоматически'
+    : 'автозапись выключена — буду только уведомлять и давать ссылку');
+};
+
+/* ---------- ссылка на официальный портал ---------- */
+function portalLink(districtId, lpuId, specialtyId, doctorId) {
+  const arr = [
+    { district: String(districtId) }, { lpu: String(lpuId) },
+    { speciality: String(specialtyId) },
+    { schedule: String(doctorId) }, { doctor: String(doctorId) },
+  ];
+  // как в телеграм-боте: : и , остаются голыми (JSON валиден, портал парсит одинаково)
+  return 'https://gorzdrav.spb.ru/service-free-schedule#' +
+    encodeURIComponent(JSON.stringify(arr)).replace(/%3A/g, ':').replace(/%2C/g, ',');
+}
+
+function notifySlot(tgt, spec, doc, slot) {
+  const when = slot.visitStart.replace('T', ' ');
+  const link = portalLink(tgt.districtId, tgt.lpuId, spec.id, doc.id);
+  log(`ТАЛОН (без автозаписи): ЛПУ ${tgt.lpuId} / ${spec.name} / ${doc.name} / ${when} — ${link}`);
+  $('slot-alert').innerHTML = `
+    <div class="slot ok"><b>Новый талон!</b> ${when} — ${spec.name}, ${doc.name},
+      ЛПУ ${tgt.lpuId} ${tgt.lpuName || ''}<br>
+      <a href="${link}" target="_blank" rel="noreferrer">Записаться на официальном сайте →</a>
+      <div class="muted">слот могли уже забрать — если не откроется, ждём следующий</div>
+    </div>`;
+  document.title = 'ТАЛОН! Горздрав';
+}
+
+/* ---------- панель найденных талонов ---------- */
+function renderTickets() {
+  $('tickets').innerHTML = tickets.map((t, i) => `
+    <div class="trow">
+      <a href="${portalLink(t.tgt.districtId, t.tgt.lpuId, t.spec.id, t.doc.id)}" target="_blank" rel="noreferrer">${t.slot.visitStart.replace('T', ' ')} — ${t.doc.name} — ${t.spec.name} (ЛПУ ${t.tgt.lpuId})</a>
+      <button data-i="${i}">Записать</button>
+    </div>`).join('') || '<span class="muted">пока ничего не найдено</span>';
+  $('tickets').querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const t = tickets[+b.dataset.i];
+    if (!t) return;
+    b.disabled = true;
+    try {
+      await book(t.tgt, t.spec, t.doc, t.slot);
+      dropTicket(t.slot.id);
+    } catch (e) {
+      log('быстрая запись не удалась: ' + e.message, 'err');
+      b.disabled = false;
+    }
+  });
+}
+function addTicket(tgt, spec, doc, slot) {
+  if (tickets.some(t => t.slot.id === slot.id)) return; // ретраи не плодят дубли
+  tickets.unshift({ tgt, spec, doc, slot });
+  if (tickets.length > 60) tickets.length = 60; // ponytail: кап сессии, история не нужна
+  renderTickets();
+}
+function dropTicket(slotId) {
+  const n = tickets.length;
+  tickets = tickets.filter(t => t.slot.id !== slotId);
+  if (tickets.length !== n) renderTickets();
+}
+
+/* ---------- автозапись ---------- */
+function createBody(slot, patient, lpuId, patientId) {
+  return {
+    esiaId: null,
+    lpuId: String(lpuId),
+    patientId: String(patientId),
+    appointmentId: slot.id,
+    referralId: null,
+    ipmpiCardId: null,
+    recipientEmail: patient.email || null,
+    patientLastName: patient.lastName,
+    patientFirstName: patient.firstName,
+    patientMiddleName: patient.middleName || '',
+    patientBirthdate: patient.birthDate,
+    room: slot.room,
+    num: slot.number,
+    address: slot.address,
+    visitDate: slot.visitStart,
+  };
+}
+async function book(tgt, spec, doc, slot) {
+  const patient = getPatient();
+  const pid = await patientIdFor(tgt.lpuId);
+  const body = createBody(slot, patient, tgt.lpuId, pid);
+  await api('/appointment/create', { method: 'POST', body: JSON.stringify(body) });
+  log(`=== ЗАПИСАЛСЯ: ЛПУ ${tgt.lpuId} / ${spec.name} / ${doc.name} / ${slot.visitStart} ===`);
+  if (patient.phone) {
+    try {
+      await api('/patient/update', {
+        method: 'POST',
+        body: JSON.stringify({ lpuId: String(tgt.lpuId), patientId: String(pid), mobilePhoneNumber: patient.phone }),
+      });
+    } catch (e) { log('patient/update: ' + e.message); }
+  }
+  try {
+    const mine = await api(`/appointments?${enc({ lpuId: tgt.lpuId, patientId: pid })}`);
+    const found = (mine || []).some(a => a.visitStart === slot.visitStart);
+    log(found ? 'контроль GET /appointments: запись найдена' : 'контроль: ЗАПИСЬ НЕ НАЙДЕНА!',
+        found ? 'ok' : 'err');
+  } catch (e) { log('контроль не удался: ' + e.message); }
+}
+
+/* ---------- цикл мониторинга ---------- */
+async function pollTarget(cfg, tgt) {
+  const autobook = !!cfg.autobook;
+  const ferIds = new Set(tgt.specialties.map(s => String(s.ferId)));
+  const pats = (tgt.patterns || []).map(s => s.trim().toLowerCase()).filter(Boolean);
+  let specs;
+  try { specs = await api(`/schedule/lpu/${tgt.lpuId}/specialties`); }
+  catch (e) { log(`ЛПУ ${tgt.lpuId} specialties: ${e.message}`); return 0; }
+  specs = Array.isArray(specs) ? specs : []; // не-массив не должен валить цикл
+  // цель ловит сохранённые ferId ИЛИ подходящие под запрос по названию
+  const chosen = specs.filter(s =>
+    (s.ferId && ferIds.has(String(s.ferId))) ||
+    pats.some(p => String(s.name || '').toLowerCase().includes(p)));
+  if (!chosen.length) {
+    log(!ferIds.size && pats.length
+      ? `ЛПУ ${tgt.lpuId}: по запросу ${pats.map(p => '«' + p + '»').join(', ')} пока не найдено`
+      : `ЛПУ ${tgt.lpuId}: ferId не найдены (список моргнул?)`);
+    return 0;
+  }
+  let booked = 0;
+  for (const spec of chosen) {
+    let docs;
+    try { docs = await api(`/schedule/lpu/${tgt.lpuId}/speciality/${spec.id}/doctors`); }
+    catch (e) { if (!e.retry) log('doctors: ' + e.message); continue; }
+    docs = Array.isArray(docs) ? docs : [];
+    for (const doc of docs) {
+      let slots = [];
+      try { slots = await api(`/schedule/lpu/${tgt.lpuId}/doctor/${doc.id}/appointments`) || []; }
+      catch (e) { if (!e.retry) log('appointments: ' + e.message); continue; }
+      slots = Array.isArray(slots) ? slots : [];
+      const seen = getSeen(tgt.lpuId, doc.id);
+      const current = new Set(slots.map(s => s.id));
+      const fresh = slots.filter(s => !seen.has(s.id))
+                         .sort((a, b) => a.visitStart.localeCompare(b.visitStart));
+      if (fresh.length)
+        log(`НОВЫХ СЛОТОВ ${fresh.length}: ЛПУ ${tgt.lpuId} / ${spec.name} / ${doc.name} -> ` +
+            fresh.map(s => s.visitStart.replace('T', ' ')).join(', '));
+      const keep = new Set();
+      for (const slot of fresh) {
+        addTicket(tgt, spec, doc, slot); // все найденные — в панель, кнопка справа
+        if (!autobook) { notifySlot(tgt, spec, doc, slot); continue; }
+        try { await book(tgt, spec, doc, slot); booked++; dropTicket(slot.id); }
+        catch (e) {
+          if (e.retry) { keep.add(slot.id); log(`ретрай слота ${slot.id}: ${e.message}`); }
+          else log(`запись не удалась (слот пропущен): ${e.message}`);
+        }
+      }
+      setSeen(tgt.lpuId, doc.id, new Set([...current].filter(id => !keep.has(id))));
+    }
+  }
+  return booked;
+}
+
+let running = false, loopPromise = null;
+async function loop() {
+  while (running) {
+    const t0 = Date.now();
+    let booked = 0;
+    const cfg = loadCfg();
+    for (const tgt of targetsOf(cfg)) {
+      if (!running) break;
+      try { booked += await pollTarget(cfg, tgt); }
+      catch (e) { log(`ЛПУ ${tgt.lpuId}: сбой цикла: ${e.message}`); }
+    }
+    $('monitor-state').textContent =
+      `цикл за ${((Date.now() - t0) / 1000).toFixed(1)}s, новых записей: ${booked}`;
+    $('monitor-state').className = booked ? 'ok' : 'muted';
+    if (booked) document.title = `(${booked}) Горздрав — автозапись`;
+    const untilNext = Math.max(0, (cfg.interval || 10) * 1000 - (Date.now() - t0));
+    await sleep(untilNext);
+  }
+}
+$('toggle').onclick = () => {
+  const cfg = normCfg();
+  try { getPatient(); } catch (e) { log(e.message); return; }
+  if (!targetsOf(cfg).length) { log('добавь хотя бы одну специальность (раздел 2)'); return; }
+  running = !running;
+  if (running) {
+    $('toggle').textContent = '■ Стоп';
+    $('toggle').classList.add('cancel'); // красный: мониторинг работает
+    $('monitor-state').textContent = 'работает…';
+    $('monitor-state').className = 'ok';
+    document.title = 'Горздрав — автозапись';
+    log(`мониторинг старт: ${targetsOf(cfg).length} ЛПУ, интервал ${cfg.interval}s, ` +
+        `автозапись: ${cfg.autobook ? 'ВКЛ' : 'выкл (только уведомление + ссылка)'}`);
+    loopPromise = loop();
+  } else {
+    $('toggle').textContent = '▶ Старт мониторинга';
+    $('toggle').classList.remove('cancel');
+    $('monitor-state').textContent = 'остановлен';
+    $('monitor-state').className = 'muted';
+    log('мониторинг остановлен');
+  }
+};
+
+/* ---------- мои записи и отмена ---------- */
+let recordEntries = [];
+async function loadRecords() {
+  try { getPatient(); }
+  catch (e) {
+    $('records-list').innerHTML = `<span class="err">${e.message}</span>`;
+    return;
+  }
+  const cfg = normCfg();
+  // ЛПУ строго по видимой конфигурации: цели раздела 2 + явно выбранная
+  // в выпадающем списке (специальность не нужна). Кэш gz_pid_* — только
+  // для скорости самого patientId, в список ЛПУ он не входит.
+  const lpus = new Map();
+  for (const t of targetsOf(cfg)) lpus.set(String(t.lpuId), t.lpuName || '');
+  if (lpuUserPicked && currentLpu)
+    lpus.set(String(currentLpu.id), currentLpu.lpuShortName || currentLpu.lpuFullName || '');
+  if (!lpus.size) {
+    $('records-list').innerHTML =
+      '<span class="err">выбери свою поликлинику в разделе 2 ' +
+      '(район → медучреждение, специальность НЕ нужна) и нажми ещё раз</span>';
+    return;
+  }
+  recordEntries = [];
+  const errors = [];
+  $('records-list').textContent = `загрузка: ЛПУ ${[...lpus.keys()].join(', ')} …`;
+  for (const [lpuId] of lpus) {
+    try {
+      const pid = await patientIdFor(lpuId);
+      const mine = await api(`/appointments?${enc({ lpuId, patientId: pid })}`) || [];
+      for (const a of mine) recordEntries.push({ lpuId, pid, a });
+    } catch (e) {
+      errors.push(`ЛПУ ${lpuId}: ${e.message}`);
+      log(`ЛПУ ${lpuId}: записи не получить — ${e.message}`);
+    }
+  }
+  renderRecords();
+  if (!recordEntries.length && errors.length)
+    $('records-list').innerHTML = `<span class="err">${errors.join('<br>')}</span>`;
+}
+function renderRecords() {
+  if (!recordEntries.length) {
+    $('records-list').innerHTML = '<span class="muted">активных записей нет (по опрошенным ЛПУ)</span>';
+    return;
+  }
+  const noMonitor = targetsOf(loadCfg()).length === 0
+    ? '<div class="muted">мониторинг не настроен: чтобы включить автозапись, добавь специальности в разделе 2</div>'
+    : '';
+  $('records-list').innerHTML = noMonitor + `
+    <table><tr><th>Дата</th><th>Специальность / врач</th><th>ЛПУ</th><th></th></tr>
+    ${recordEntries.map((e, i) => `<tr>
+      <td>${e.a.visitStart.replace('T', ' ').slice(0, 16)}</td>
+      <td>${e.a.specialityRendingConsultation?.name || ''}<br>
+          <span class="muted">${e.a.doctorRendingConsultation?.name || ''}</span></td>
+      <td>${e.a.lpuShortName || e.a.lpuFullName || ''}<br><span class="muted">${e.a.lpuAddress || ''}</span></td>
+      <td><button data-i="${i}" class="cancel">Отменить</button></td>
+    </tr>`).join('')}</table>`;
+  document.querySelectorAll('.cancel').forEach(b => b.onclick = async () => {
+    const e = recordEntries[+b.dataset.i];
+    if (!confirm(`Отменить запись на ${e.a.visitStart.replace('T', ' ')}?`)) return;
+    try {
+      await api('/appointment/cancel', {
+        method: 'POST',
+        body: JSON.stringify({
+          appointmentId: String(e.a.appointmentId),
+          lpuId: String(e.lpuId),
+          patientId: String(e.pid),
+          esiaId: null,
+        }),
+      });
+      log(`запись ${e.a.appointmentId} отменена`);
+      recordEntries.splice(+b.dataset.i, 1);
+      renderRecords();
+    } catch (err) { log('отмена не удалась: ' + err.message); }
+  });
+}
+$('load-records').onclick = loadRecords;
+$('clear-log').onclick = () => { logLines = []; $('log').textContent = ''; };
+
+/* ---------- старт ---------- */
+(async function init() {
+  renderProfile();
+  renderWho();
+  renderTargets();
+  renderAutobook();
+  $('p_interval').value = normCfg().interval || 10;
+  try { await geoReady(); log('справочники загружены'); }
+  catch (e) { log('init: ' + e.message); }
+})();
+</script>
+</body>
+</html>
