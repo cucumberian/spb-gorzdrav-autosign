@@ -79,6 +79,8 @@
   .badge { background: var(--accent-transp); border-radius: var(--radius100);
            padding: 1px 8px; font-size: .85em; }
   .badge[data-s], .badge[data-p] { cursor: pointer; } /* клик — убрать из цели */
+  @keyframes ic-turn { from { transform: rotate(0); } to { transform: rotate(90deg); } }
+  #toggle .ic { display: inline-block; animation: ic-turn .4s ease; } /* доворот на каждом цикле */
   /* профили — как .patient в github.com/egorantonov/gorzdrav */
   .patient { display: flex; border: 1px solid transparent; border-radius: var(--radius15);
              overflow: hidden; flex-direction: row; justify-content: space-between;
@@ -150,10 +152,10 @@
 </style>
 </head>
 <body>
-<h1>Горздрав СПб — автозапись <span class="muted">(профиль хранится в этом браузере)</span><span id="version">v0.1.0</span></h1>
+<h1>Горздрав СПб — автозапись <span class="muted">(профиль хранится в этом браузере)</span><span id="version">v0.1.2</span></h1>
 
 <section>
-  <h2>1. Профили пациентов</h2>
+  <h2>1. Профили</h2>
   <div id="profiles"></div>
   <div>
     <button id="new-profile">＋ новый профиль</button>
@@ -183,8 +185,14 @@
   <div id="targets"></div>
 </section>
 
+<section id="records">
+  <h2>3. Мои записи <span class="muted">(достаточно выбрать поликлинику в разделе 2 — специальность не нужна)</span><span class="who"></span></h2>
+  <button id="load-records">Показать</button>
+  <div id="records-list" class="muted">не загружено</div>
+</section>
+
 <section>
-  <h2>3. Запуск <span class="who"></span></h2>
+  <h2>4. Запуск <span class="who"></span></h2>
   <div><button id="toggle">▶ Старт мониторинга</button>
        <span id="monitor-state" class="muted">остановлен</span></div>
   <div><label>Интервал опроса, сек</label><input id="p_interval" value="10" size="4"></div>
@@ -198,14 +206,8 @@
   <div class="muted">новый талон → patient/search → appointment/create → контроль (лог ниже)</div>
 </section>
 
-<section id="records">
-  <h2>4. Мои записи <span class="muted">(достаточно выбрать поликлинику в разделе 2 — специальность не нужна)</span><span class="who"></span></h2>
-  <button id="load-records">Показать</button>
-  <div id="records-list" class="muted">не загружено</div>
-</section>
-
 <section>
-  <h2>Найденные талоны <span class="muted">(слева — ссылка на портал, справа — быстрая запись)</span></h2>
+  <h2>Найденные талоны <span class="muted">(слева — ссылка на портал, справа — быстрая запись)</span><span class="who"></span></h2>
   <div id="tickets"><span class="muted">пока ничего не найдено</span></div>
 </section>
 
@@ -240,8 +242,8 @@ function log(msg, cls) {
   logLines.push(`${t} ${msg}`);
   if (logLines.length > 500) logLines.shift();
   const el = $('log');
-  el.textContent = logLines.join('\n');
-  el.scrollTop = el.scrollHeight;
+  el.textContent = [...logLines].reverse().join('\n'); // новые сверху
+  el.scrollTop = 0; // новые сверху — держим верх, не низ
   if (cls) { /* reserved */ }
 }
 
@@ -462,7 +464,7 @@ $('save-profile').onclick = () => {
   }
 };
 
-$('p_interval').onchange = () => { // интервал — глобальный (раздел 3), не привязан к профилю
+$('p_interval').onchange = () => { // интервал — глобальный (раздел 4), не привязан к профилю
   const cfg = loadCfg();
   cfg.interval = Math.max(5, parseInt($('p_interval').value, 10) || 10);
   $('p_interval').value = cfg.interval;
@@ -617,7 +619,8 @@ async function loadSpecialties() {
 $('refresh-specs').onclick = async () => { // тот же ЛПУ, без пере-выбора
   if (!currentLpu) { log('специальности: сначала выбери медучреждение', 'err'); return; }
   log(`специальности: обновляю ЛПУ ${currentLpu.id}…`);
-  await loadSpecialties();
+  const b = $('refresh-specs'); b.disabled = true;
+  try { await loadSpecialties(); } finally { b.disabled = false; } // не зависнет при ошибке
   log(specialties.length
     ? `специальности: получено ${specialties.length} (галочки сохранены)`
     : 'специальности: список пуст — попробуй обновить ещё раз');
@@ -641,6 +644,7 @@ function renderTargets() {
       lpuUserPicked = false;
     saveTargets(cfg2);
     renderTargets();
+    if (removed) resetSeen(removed.lpuId); // цель удалена — чистим и её seen-ключи
   });
   // бейдж запроса: клик — убрать паттерн из цели
   $('targets').querySelectorAll('.badge[data-p]').forEach(el => el.onclick = () => {
@@ -655,6 +659,7 @@ function renderTargets() {
     log(empty
       ? `цель ЛПУ ${t.lpuId} пуста — убрана из мониторинга`
       : `убрано: запрос «${p}» — ЛПУ ${t.lpuId}`);
+    resetSeen(t.lpuId); // цель изменилась — текущие талоны оставшихся объявятся заново
   });
   // бейдж специальности: клик — убрать её из цели
   $('targets').querySelectorAll('.badge[data-s]').forEach(el => el.onclick = () => {
@@ -669,6 +674,7 @@ function renderTargets() {
     log(empty
       ? `цель ЛПУ ${t.lpuId} пуста — убрана из мониторинга`
       : `убрано: ${sp ? sp.name : '?'} — ЛПУ ${t.lpuId}`);
+    resetSeen(t.lpuId); // цель изменилась — текущие талоны оставшихся объявятся заново
   });
 }
 $('add-target').onclick = () => {
@@ -715,10 +721,7 @@ $('add-target').onclick = () => {
     log(`убрано из цели ЛПУ ${currentLpu.id}: ${dropped.map(s => s.name).join(', ')} — мониторинг больше не опрашивает`);
   // цель изменилась — сбрасываем дедупликацию этой поликлиники, иначе уже
   // объявленные талоны не попадут ни в панель, ни в лог (как с запросом «диспанс»)
-  const stale = Object.keys(localStorage).filter(k => k.startsWith(`gz_seen:${currentLpu.id}:`));
-  stale.forEach(k => localStorage.removeItem(k));
-  if (stale.length)
-    log(`дедупликация ЛПУ ${currentLpu.id}: сброшено врачей ${stale.length} — текущие талоны объявятся заново`);
+  resetSeen(currentLpu.id);
 };
 
 /* ---------- кэш patientId и виденные слоты ---------- */
@@ -743,6 +746,16 @@ async function patientIdFor(lpuId) {
 const seenKey = (l, d) => `gz_seen:${l}:${d}`;
 const getSeen = (l, d) => new Set(JSON.parse(localStorage.getItem(seenKey(l, d)) || '[]'));
 const setSeen = (l, d, set) => localStorage.setItem(seenKey(l, d), JSON.stringify([...set]));
+// цель изменилась или старт: seen этой поликлиники в ноль, иначе уже объявленные
+// талоны не попадут ни в панель, ни в лог (как с «Акушер» на ЛПУ 1092)
+function resetSeen(lpuId) {
+  const pfx = `gz_seen:${lpuId}:`;
+  const stale = Object.keys(localStorage).filter(k => k.startsWith(pfx));
+  stale.forEach(k => localStorage.removeItem(k));
+  if (stale.length)
+    log(`дедупликация ЛПУ ${lpuId}: сброшено врачей ${stale.length} — текущие талоны объявятся заново`);
+  return stale.length;
+}
 
 /* ---------- чекбокс автозаписи ---------- */
 function renderAutobook() { $('autobook').checked = !!loadCfg().autobook; }
@@ -910,6 +923,11 @@ async function pollTarget(cfg, tgt) {
 let running = false, loopPromise = null;
 async function loop() {
   while (running) {
+    const ic = $('toggle').querySelector('.ic'); // доворот ■ на каждом новом цикле
+    if (ic) {
+      ic.dataset.kicks = (+ic.dataset.kicks || 0) + 1;
+      ic.style.animation = 'none'; void ic.offsetWidth; ic.style.animation = '';
+    }
     const t0 = Date.now();
     let booked = 0;
     const cfg = loadCfg();
@@ -928,24 +946,29 @@ async function loop() {
 }
 $('toggle').onclick = () => {
   const cfg = normCfg();
-  try { getPatient(); } catch (e) { log(e.message); return; }
-  if (!targetsOf(cfg).length) { log('добавь хотя бы одну специальность (раздел 2)'); return; }
-  running = !running;
-  if (running) {
-    $('toggle').textContent = '■ Стоп';
-    $('toggle').classList.add('cancel'); // красный: мониторинг работает
-    $('monitor-state').textContent = 'работает…';
-    $('monitor-state').className = 'ok';
-    document.title = 'Горздрав — автозапись';
-    log(`мониторинг старт: ${targetsOf(cfg).length} ЛПУ, интервал ${cfg.interval}s, ` +
-        `автозапись: ${cfg.autobook ? 'ВКЛ' : 'выкл (только уведомление + ссылка)'}`);
-    loopPromise = loop();
-  } else {
+  if (running) { // стоп работает всегда — даже если целей уже нет (удалил все специальности)
+    running = false;
     $('toggle').textContent = '▶ Старт мониторинга';
     $('toggle').classList.remove('cancel');
     $('monitor-state').textContent = 'остановлен';
     $('monitor-state').className = 'muted';
     log('мониторинг остановлен');
+    return;
+  }
+  try { getPatient(); } catch (e) { log(e.message); return; }
+  if (!targetsOf(cfg).length) { log('добавь хотя бы одну специальность (раздел 2)'); return; }
+  running = true;
+  {
+    $('toggle').innerHTML = '<span class="ic">■</span> Стоп';
+    $('toggle').classList.add('cancel'); // красный: мониторинг работает
+    $('monitor-state').textContent = 'работает…';
+    $('monitor-state').className = 'ok';
+    document.title = 'Горздрав — автозапись';
+    // каждый старт сбрасывает дедупликацию: все текущие талоны объявятся заново
+    for (const t of targetsOf(cfg)) resetSeen(t.lpuId);
+    log(`мониторинг старт: ${targetsOf(cfg).length} ЛПУ, интервал ${cfg.interval}s, ` +
+        `автозапись: ${cfg.autobook ? 'ВКЛ' : 'выкл (только уведомление + ссылка)'}`);
+    loopPromise = loop();
   }
 };
 
@@ -1024,7 +1047,10 @@ function renderRecords() {
     } catch (err) { log('отмена не удалась: ' + err.message); }
   });
 }
-$('load-records').onclick = loadRecords;
+$('load-records').onclick = async () => { // disabled на время запроса, finally — на случай ошибки
+  const b = $('load-records'); b.disabled = true;
+  try { await loadRecords(); } finally { b.disabled = false; }
+};
 $('clear-log').onclick = () => { logLines = []; $('log').textContent = ''; };
 
 /* ---------- старт ---------- */
