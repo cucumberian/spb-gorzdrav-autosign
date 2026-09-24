@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Горздрав — автозапись</title>
 <style>
   /* дизайн-язык по мотивам github.com/egorantonov/gorzdrav */
@@ -56,10 +57,19 @@
     border: 0; border-radius: var(--radius100); height: 40px;
     color: var(--button-text); background: var(--accent);
     padding: 0 25px; text-transform: uppercase; font: inherit;
-    cursor: pointer; transition: background-color .2s ease-in-out;
+    cursor: pointer; transition: background-color .2s ease-in-out, transform .1s ease-out;
   }
   button:hover { background: var(--accent-hover); }
-  button:disabled, button:hover:disabled { background: var(--gray); cursor: not-allowed; }
+  button:active, button.busy { transform: translateY(1px); } /* опускаем на 1px — вид нажатой */
+  button:disabled:not(.busy), button:hover:disabled:not(.busy) { background: var(--gray); cursor: not-allowed; }
+  /* кнопка в работе: бегущий градиент-скелетон, родной фон не трогаем */
+  @keyframes btn-busy { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  button.busy {
+    cursor: progress;
+    background-image: linear-gradient(90deg, transparent 30%, rgba(255,255,255,.5) 50%, transparent 70%) !important;
+    background-size: 200% 100% !important;
+    animation: btn-busy 1.1s linear infinite !important;
+  }
   #add-target { background: var(--select); }
   #add-target:hover { background: var(--select-hover); }
   .cancel { background: var(--cancel); }
@@ -113,6 +123,10 @@
   #tickets .trow button:hover { background: var(--select-hover); }
   .slot, .rec { font: 13px/1.5 monospace; }
   #records table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  /* мобильный: кнопка не должна растягивать колонку — перенос по слогам (soft hyphen в разметке);
+     высота по контенту, фиксированные 40px обрезали бы вторую строку */
+  #records td button { white-space: normal; hyphens: auto; overflow-wrap: break-word;
+                       height: auto; min-height: 32px; padding: 6px 10px; line-height: 1.25; }
   #records th { background: var(--accent-transp); color: var(--accent-hover); }
   #records td, #records th { border: 1px solid var(--accent-neutral);
          padding: 4px 6px; text-align: left; font-size: 13px; }
@@ -123,10 +137,11 @@
   #lpu-btn:hover { background: var(--accent-neutral); }
   .popup { z-index: 5; position: fixed; inset: 0; background: #0007;
            backdrop-filter: blur(5px); }
-  .popup_container { display: flex; flex-direction: column; height: 100%;
-           max-width: 560px; margin: 0 auto; background: var(--background);
-           overflow: hidden; border-top: var(--accent) 1.5px solid;
-           border-top-left-radius: 25px; border-top-right-radius: 25px; }
+  .popup_container { display: flex; flex-direction: column;
+           /* отступ сверху/снизу: не упирается в низ экрана; dvh — видимая высота на мобиле */
+           height: calc(100% - 24px); height: calc(100vh - 24px); height: calc(100dvh - 24px);
+           max-width: 560px; margin: 12px auto; background: var(--background);
+           overflow: hidden; border: 1px solid var(--accent); border-radius: 25px; }
   .popup_header { flex: none; height: 48px; padding: 0 12px;
            display: flex; align-items: center; justify-content: space-between;
            font-weight: 600; color: var(--accent-hover); text-transform: uppercase;
@@ -134,7 +149,12 @@
   #lpu-close { height: 30px; width: 30px; padding: 0; border-radius: 50%;
            background: var(--remove); color: #000; text-transform: none; }
   #lpu-close:hover { background: var(--cancel-hover); color: var(--button-text); }
-  .popup_content { flex: 1; overflow-y: auto; padding: 10px; }
+  .popup_content { flex: 1; min-height: 0; /* сжимается внутри flex-колонки -> скролл, а не вылезание */
+                   overflow-y: auto; padding: 10px; }
+  /* модалка успешной записи — компактное окно по центру, а не шторка на весь экран */
+  #booked-popup { display: flex; align-items: center; justify-content: center; padding: 16px; }
+  #booked-popup .popup_container { height: auto; width: 100%;
+    max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); }
   .chips { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 10px 8px; }
   .chip { height: 28px; padding: 0 12px; font-size: 12px; border: 1px solid transparent;
           border-radius: var(--radius100); background: var(--accent-transp);
@@ -151,10 +171,21 @@
   .lpu-item:hover { background: var(--accent-neutral); }
   .lpu-item.selected { border-color: var(--accent); background: var(--accent-neutral); }
   .lpu-item-addr { color: var(--gray); font-size: 13px; margin-top: 3px; }
+  /* тосты: ошибки записи (err) и нейтральные сообщения (info) */
+  .toast { position: fixed; right: 16px; bottom: 16px; z-index: 20; max-width: 420px;
+           background: var(--cancel); color: #fff; border-radius: var(--radius15);
+           padding: 10px 14px; font-size: 13px; line-height: 1.4; cursor: pointer;
+           box-shadow: 0 4px 16px #0004; animation: toast-in .2s ease; }
+  .toast.info { background: var(--select); }
+  @keyframes toast-in { from { transform: translateY(8px); opacity: 0; }
+                        to { transform: none; opacity: 1; } }
+  /* модалка успешной записи — кнопки свои (класс .cancel занят binding'ом отмены) */
+  #booked-ok { background: var(--remove); color: #000; text-transform: none; }
+  #booked-ok:hover { background: var(--cancel-hover); color: var(--button-text); }
 </style>
 </head>
 <body>
-<h1>Горздрав СПб — автозапись <span class="muted">(профиль хранится в этом браузере)</span><span id="version">v0.1.3</span></h1>
+<h1>Горздрав СПб — автозапись <span class="muted">(профиль хранится в этом браузере)</span><span id="version">v0.1.5</span></h1>
 
 <section>
   <h2>1. Профили</h2>
@@ -230,10 +261,31 @@
   </div>
 </div>
 
+<!-- модалка успешной записи: данные талона, чтобы не прокликивать лог -->
+<div id="booked-popup" class="popup hidden">
+  <div class="popup_container">
+    <div class="popup_header">
+      <span>Запись оформлена ✓</span>
+      <button id="booked-close" type="button" title="закрыть">✕</button>
+    </div>
+    <div class="popup_content">
+      <div id="booked-body" class="slot"></div>
+      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap">
+        <button id="booked-records" type="button">Мои записи</button>
+        <button id="booked-ok" type="button">Закрыть</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 'use strict';
-const API = 'https://gorzdrav.spb.ru/_api/api/v2';
+// тесты: python3 mock_server.py и открой http://localhost:8124/?mock
+const API = new URLSearchParams(location.search).has('mock')
+  ? '/_api/api/v2'
+  : 'https://gorzdrav.spb.ru/_api/api/v2';
 const $ = id => document.getElementById(id);
+const busy = (b, on) => { b.disabled = on; b.classList.toggle('busy', on); }; // градиент вместо серого disabled
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* ---------- лог ---------- */
@@ -247,6 +299,19 @@ function log(msg, cls) {
   el.textContent = [...logLines].reverse().join('\n'); // новые сверху
   el.scrollTop = 0; // новые сверху — держим верх, не низ
   if (cls) { /* reserved */ }
+}
+
+/* ---------- тосты: ошибка записи (err) / нейтральное (info) ---------- */
+function toast(msg, kind = 'err') {
+  // ponytail: дедуп по тексту — одинаковая ошибка каждый цикл не плодит стопку
+  if ([...document.querySelectorAll('.toast')].some(t => t.textContent === msg)) return;
+  const el = document.createElement('div');
+  el.className = 'toast ' + (kind === 'info' ? 'info' : 'err');
+  el.textContent = msg;
+  el.title = 'клик — закрыть';
+  el.onclick = () => el.remove();
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 8000);
 }
 
 /* ---------- токен: сервер выдаёт его заголовком token каждого ответа ---------- */
@@ -597,7 +662,10 @@ $('lpu-btn').onclick = () => { renderLpuList(); $('lpu-popup').classList.remove(
 $('lpu-close').onclick = () => $('lpu-popup').classList.add('hidden');
 $('lpu-popup').onclick = e => { if (e.target.id === 'lpu-popup') $('lpu-popup').classList.add('hidden'); };
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') $('lpu-popup').classList.add('hidden');
+  if (e.key === 'Escape') {
+    $('lpu-popup').classList.add('hidden');
+    $('booked-popup').classList.add('hidden');
+  }
 });
 
 $('lpu').onchange = () => { lpuUserPicked = true; loadSpecialties(); };
@@ -636,8 +704,8 @@ async function loadSpecialties() {
 $('refresh-specs').onclick = async () => { // тот же ЛПУ, без пере-выбора
   if (!currentLpu) { log('специальности: сначала выбери медучреждение', 'err'); return; }
   log(`специальности: обновляю ЛПУ ${currentLpu.id}…`);
-  const b = $('refresh-specs'); b.disabled = true;
-  try { await loadSpecialties(); } finally { b.disabled = false; } // не зависнет при ошибке
+  const b = $('refresh-specs'); busy(b, true);
+  try { await loadSpecialties(); } finally { busy(b, false); } // не зависнет при ошибке
   log(specialties.length
     ? `специальности: получено ${specialties.length} (галочки сохранены)`
     : 'специальности: список пуст — попробуй обновить ещё раз');
@@ -848,13 +916,13 @@ function renderTickets() {
   $('tickets').querySelectorAll('button').forEach(b => b.onclick = async () => {
     const t = tickets[+b.dataset.i];
     if (!t) return;
-    b.disabled = true;
+    busy(b, true);
     try {
       await book(t.tgt, t.spec, t.doc, t.slot);
       dropTicket(t.slot.id);
     } catch (e) {
       log('быстрая запись не удалась: ' + e.message, 'err');
-      b.disabled = false;
+      busy(b, false);
     }
   });
 }
@@ -869,6 +937,35 @@ function dropTicket(slotId) {
   tickets = tickets.filter(t => t.slot.id !== slotId);
   if (tickets.length !== n) renderTickets();
 }
+
+/* ---------- модалка успешной записи ---------- */
+const bookedClose = () => $('booked-popup').classList.add('hidden');
+function showBooked(tgt, spec, doc, slot, appt) {
+  const row = (label, val) => val ? `<div><span class="muted">${label}:</span> ${val}</div>` : '';
+  const when = slot.visitStart.replace('T', ' ').slice(0, 16);
+  const roomNum = [slot.room, slot.number ? '№' + slot.number : ''].filter(Boolean).join(', ');
+  $('booked-body').innerHTML = [
+    row('Дата и время', when),
+    row('Врач', appt?.doctorRendingConsultation?.name || doc.name),
+    row('Специальность', appt?.specialityRendingConsultation?.name || spec.name),
+    row('ЛПУ', appt?.lpuShortName || appt?.lpuFullName || tgt.lpuName || `ЛПУ ${tgt.lpuId}`),
+    row('Адрес', appt?.lpuAddress || slot.address),
+    row('Кабинет', roomNum),
+    row('id записи', appt?.appointmentId || slot.id),
+    row('Телефон', appt?.lpuPhone),
+    appt ? '' : '<div class="muted">контрольный запрос не прошёл — данные из слота, проверь раздел «Мои записи»</div>',
+  ].join('');
+  $('booked-popup').classList.remove('hidden');
+  document.title = 'ЗАПИСЬ ОФОРМЛЕНА — Горздрав';
+}
+$('booked-close').onclick = bookedClose;
+$('booked-ok').onclick = bookedClose;
+$('booked-popup').onclick = e => { if (e.target.id === 'booked-popup') bookedClose(); };
+$('booked-records').onclick = () => {
+  bookedClose();
+  $('records').scrollIntoView({ behavior: 'smooth' });
+  $('load-records').click();
+};
 
 /* ---------- автозапись ---------- */
 function createBody(slot, patient, lpuId, patientId) {
@@ -892,9 +989,17 @@ function createBody(slot, patient, lpuId, patientId) {
 }
 async function book(tgt, spec, doc, slot) {
   const patient = getPatient();
-  const pid = await patientIdFor(tgt.lpuId);
-  const body = createBody(slot, patient, tgt.lpuId, pid);
-  await api('/appointment/create', { method: 'POST', body: JSON.stringify(body) });
+  let pid, body;
+  try {
+    pid = await patientIdFor(tgt.lpuId);
+    body = createBody(slot, patient, tgt.lpuId, pid);
+    await api('/appointment/create', { method: 'POST', body: JSON.stringify(body) });
+  } catch (e) {
+    // 751 — «уже есть активная запись»: это не сбой, сообщаем нейтрально
+    if (e.errorCode === 751) toast('Запись уже есть: ' + e.message, 'info');
+    else toast('Запись не удалась: ' + e.message, 'err');
+    throw e;
+  }
   log(`=== ЗАПИСАЛСЯ: ЛПУ ${tgt.lpuId} / ${spec.name} / ${doc.name} / ${slot.visitStart} ===`);
   if (patient.phone) {
     try {
@@ -904,12 +1009,14 @@ async function book(tgt, spec, doc, slot) {
       });
     } catch (e) { log('patient/update: ' + e.message); }
   }
+  let found = null;
   try {
     const mine = await api(`/appointments?${enc({ lpuId: tgt.lpuId, patientId: pid })}`);
-    const found = (mine || []).some(a => a.visitStart === slot.visitStart);
+    found = (mine || []).find(a => a.visitStart === slot.visitStart) || null;
     log(found ? 'контроль GET /appointments: запись найдена' : 'контроль: ЗАПИСЬ НЕ НАЙДЕНА!',
         found ? 'ok' : 'err');
   } catch (e) { log('контроль не удался: ' + e.message); }
+  showBooked(tgt, spec, doc, slot, found); // модалка с данными талона — не прокликивать лог
 }
 
 /* ---------- цикл мониторинга ---------- */
@@ -1071,11 +1178,12 @@ function renderRecords() {
       <td>${e.a.specialityRendingConsultation?.name || ''}<br>
           <span class="muted">${e.a.doctorRendingConsultation?.name || ''}</span></td>
       <td>${e.a.lpuShortName || e.a.lpuFullName || ''}<br><span class="muted">${e.a.lpuAddress || ''}</span></td>
-      <td><button data-i="${i}" class="cancel">Отменить</button></td>
+      <td><button data-i="${i}" class="cancel">От&shy;ме&shy;нить</button></td>
     </tr>`).join('')}</table>`;
   document.querySelectorAll('.cancel').forEach(b => b.onclick = async () => {
     const e = recordEntries[+b.dataset.i];
     if (!confirm(`Отменить запись на ${e.a.visitStart.replace('T', ' ')}?`)) return;
+    busy(b, true);
     try {
       await api('/appointment/cancel', {
         method: 'POST',
@@ -1089,12 +1197,18 @@ function renderRecords() {
       log(`запись ${e.a.appointmentId} отменена`);
       recordEntries.splice(+b.dataset.i, 1);
       renderRecords();
-    } catch (err) { log('отмена не удалась: ' + err.message); }
+      toast(`Запись отменена: ${e.a.visitStart.replace('T', ' ').slice(0, 16)}`, 'info');
+    } catch (err) {
+      log('отмена не удалась: ' + err.message);
+      toast('Отмена не удалась: ' + err.message, 'err');
+    } finally {
+      busy(b, false); // при успехе кнопку всё равно снесёт renderRecords
+    }
   });
 }
-$('load-records').onclick = async () => { // disabled на время запроса, finally — на случай ошибки
-  const b = $('load-records'); b.disabled = true;
-  try { await loadRecords(); } finally { b.disabled = false; }
+$('load-records').onclick = async () => { // шиммер на время запроса, finally — на случай ошибки
+  const b = $('load-records'); busy(b, true);
+  try { await loadRecords(); } finally { busy(b, false); }
 };
 $('clear-log').onclick = () => { logLines = []; $('log').textContent = ''; };
 
