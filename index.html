@@ -76,6 +76,8 @@
   /* цели мониторинга — карточки как .patient в референсе */
   .target { background: var(--background); border: 1px solid var(--accent-neutral);
             border-radius: var(--radius15); padding: 8px 10px; margin: 6px 0; }
+  .target.active { border-color: var(--accent); } /* цель выбранного в разделе 2 ЛПУ */
+  .target .jump { color: var(--link); cursor: pointer; } /* клик — подставить ЛПУ в селектор */
   .badge { background: var(--accent-transp); border-radius: var(--radius100);
            padding: 1px 8px; font-size: .85em; }
   .badge[data-s], .badge[data-p] { cursor: pointer; } /* клик — убрать из цели */
@@ -266,8 +268,9 @@ async function api(path, opts = {}) {
     log(`← errorCode=${data.errorCode} ${data.message || ''}`);
     const e = new Error(data.message || ('errorCode ' + data.errorCode));
     e.errorCode = data.errorCode;
-    // 37/38/39 — штатное «нет мест», 602/603/616 — временный сбой МИС
-    e.retry = [37, 38, 39, 602, 603, 616, 660].includes(data.errorCode);
+    // 37/38/39 — штатное «нет мест», 602/603/616/660/615 — временный сбой сервиса/МИС
+    // 615 «Внутренняя ошибка сервиса» встречалась в пике 23.09 (5 раз за 2 мин) — тоже ретраим
+    e.retry = [37, 38, 39, 602, 603, 615, 616, 660].includes(data.errorCode);
     throw e;
   }
   log(`← ok`);
@@ -550,6 +553,9 @@ function updateLpuCaption() {
   $('lpu').title = text;
   $('lpu-caption').textContent = text;
   $('lpu-btn').textContent = l ? `${l.lpuShortName || l.lpuFullName} ▾` : '— выбрать — ▾';
+  // подсветка карточки цели с выбранным ЛПУ (переключение кликом по «ЛПУ N»)
+  document.querySelectorAll('#targets .target').forEach(el =>
+    el.classList.toggle('active', !!currentLpu && String(el.dataset.lpu) === String(currentLpu.id)));
 }
 
 /* попап выбора ЛПУ: нативный <select> скрыт и хранит только value,
@@ -596,17 +602,28 @@ document.addEventListener('keydown', e => {
 
 $('lpu').onchange = () => { lpuUserPicked = true; loadSpecialties(); };
 async function loadSpecialties() {
+  const prevLpu = currentLpu; // галочки переживают только обновление ТОГО ЖЕ ЛПУ:
   currentLpu = lpus.find(l => String(l.id) === $('lpu').value);
   if (!currentLpu) return; // значение не из этого района (например, после смены района)
   updateLpuCaption();
+  let specErr = null;
   try { specialties = await api(`/schedule/lpu/${currentLpu.id}/specialties`); }
-  catch (e) { specialties = []; if (e.errorCode !== 37) log('specialties: ' + e.message); }
+  catch (e) {
+    specialties = [];
+    // 37 — штатное «нет специальностей»; прочее (напр. 615 в пике) — показываем как ошибку
+    if (e.errorCode !== 37) { specErr = e.message; log('specialties: ' + e.message); }
+  }
+  if (!Array.isArray(specialties)) specialties = []; // success+не-массив не должен ломать рендер
   if (!specialties.length) {
-    $('specialties').innerHTML = '<span class="err">в этом ЛПУ нет специальностей для записи</span>';
+    $('specialties').innerHTML = specErr
+      ? `<span class="err">сервис не ответил (${specErr}) — нажми «Обновить специальности» ещё раз</span>`
+      : '<span class="err">в этом ЛПУ нет специальностей для записи</span>';
     $('add-target').disabled = true;
     return;
   }
-  const keep = new Set([...document.querySelectorAll('.spec:checked')].map(c => c.value)); // галочки переживают обновление
+  // id специальности локален для ЛПУ — при переключении ЛПУ совпадения ничего не значат
+  const keep = prevLpu && String(prevLpu.id) === String(currentLpu.id)
+    ? new Set([...document.querySelectorAll('.spec:checked')].map(c => c.value)) : new Set();
   const tgt = targetsOf(normCfg()).find(t => String(t.lpuId) === String(currentLpu.id));
   const tgtFer = new Set((tgt ? tgt.specialties : []).map(x => String(x.ferId))); // состояние цели — в чекбоксах
   $('specialties').innerHTML = specialties.map(s => `
@@ -628,8 +645,8 @@ $('refresh-specs').onclick = async () => { // тот же ЛПУ, без пер�
 function renderTargets() {
   const cfg = normCfg();
   $('targets').innerHTML = targetsOf(cfg).map((t, i) => `
-    <div class="target">
-      <b>ЛПУ ${t.lpuId}</b> <span class="muted">${t.lpuName || ''} (${t.districtName || ''})</span>
+    <div class="target${currentLpu && String(t.lpuId) === String(currentLpu.id) ? ' active' : ''}" data-lpu="${t.lpuId}">
+      <span class="jump" data-i="${i}" title="показать специальности этого ЛПУ — легко переключаться между целями"><b>ЛПУ ${t.lpuId}</b> ${t.lpuName || ''} (${t.districtName || ''})</span>
       <button data-i="${i}" class="rm">✕</button><br>
       ${t.specialties.map((s, si) =>
         `<span class="badge" data-t="${i}" data-s="${si}" title="убрать специальность">${s.name} (ferId=${s.ferId}) ✕</span>`).join(' ')}
@@ -676,6 +693,32 @@ function renderTargets() {
       : `убрано: ${sp ? sp.name : '?'} — ЛПУ ${t.lpuId}`);
     resetSeen(t.lpuId); // цель изменилась — текущие талоны оставшихся объявятся заново
   });
+  // клик по «ЛПУ N» в карточке — подставляем её в селектор раздела 2 (переключаемся между целями)
+  $('targets').querySelectorAll('.jump').forEach(el => el.onclick = () =>
+    jumpToLpu(targetsOf(normCfg())[+el.dataset.i]));
+}
+
+/* клик по «ЛПУ N» в карточке цели — подставляем её в селектор раздела 2:
+   удобно переключаться между выбранными ЛПУ и смотреть их специальности */
+async function jumpToLpu(t) {
+  if (!t) return;
+  try { await geoReady(); }
+  catch { log('справочники не загрузились — кликни ещё раз', 'err'); return; }
+  if (String(t.districtId) !== String(currentDistrict.id)) {
+    const d = districts.find(x => String(x.id) === String(t.districtId));
+    if (!d) { log(`район ${t.districtId} цели (ЛПУ ${t.lpuId}) не найден`, 'err'); return; }
+    currentDistrict = d;
+    $('district').value = d.id;
+    await loadLpus(); // селектор ЛПУ перерисован под новый район
+  }
+  const l = lpus.find(x => String(x.id) === String(t.lpuId));
+  if (!l) { log(`ЛПУ ${t.lpuId} не показывается API (район ${t.districtId})`, 'err'); return; }
+  $('lpu').value = l.id;
+  currentLpu = l;
+  lpuUserPicked = true; // как выбранный вручную — renderWho не сбрасывает на профиль
+  updateLpuCaption();
+  await loadSpecialties();
+  log(`переключено на ЛПУ ${l.id} (${l.lpuShortName || l.lpuFullName || ''}) — специальности обновлены`);
 }
 $('add-target').onclick = () => {
   const picked = [...document.querySelectorAll('.spec:checked')].map(cb => ({
