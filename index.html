@@ -185,7 +185,7 @@
 </style>
 </head>
 <body>
-<h1>Горздрав СПб — автозапись <span class="muted">(открывать в <span style="color:#fc3f1d">Я</span>ндекс.Браузере — профиль хранится в браузере)</span><span id="version">v0.1.5</span></h1>
+<h1>Горздрав СПб — автозапись <span class="muted">(открывать в <span style="color:#fc3f1d">Я</span>ндекс.Браузере — профиль хранится в браузере)</span><span id="version">v0.1.6</span></h1>
 
 <section>
   <h2>1. Профили</h2>
@@ -241,6 +241,11 @@
 
 <section>
   <h2>Найденные талоны <span class="muted">(слева — ссылка на портал, справа — быстрая запись)</span><span class="who"></span></h2>
+  <div>
+    <label>Игнорировать талоны с текстом</label>
+    <input id="ignore" placeholder="Ветеранов С В О" size="32">
+  </div>
+  <div class="muted">подстрока без учёта регистра (врач/кабинет и специальность); несколько — через запятую; совпадения скрываются, не дают уведомлений и не бронируются автоматически</div>
   <div id="tickets"><span class="muted">пока ничего не найдено</span></div>
 </section>
 
@@ -350,6 +355,18 @@ function loadCfg() {
   catch { return { patient: null, profiles: [], interval: 10 }; }
 }
 function saveCfg(cfg) { localStorage.setItem('gz_cfg', JSON.stringify(cfg)); }
+
+/* ---------- фильтр талонов: подстроки во враче/кабинете и специальности ---------- */
+const normText = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+function ignoreNeedles(cfg) {
+  return (Array.isArray(cfg.ignores) ? cfg.ignores : []).map(normText).filter(Boolean);
+}
+function isIgnored(cfg, spec, doc) {
+  const needles = ignoreNeedles(cfg);
+  if (!needles.length) return false;
+  const hay = normText(`${doc.name || ''} — ${spec.name || ''}`);
+  return needles.some(n => hay.includes(n));
+}
 
 function getPatient() {
   const p = loadCfg().patient;
@@ -908,11 +925,20 @@ function notifySlot(tgt, spec, doc, slot) {
 const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const dowBadge = v => `<span class="badge">${DOW[new Date(v).getDay()]}</span> `; // день недели бейджем
 function renderTickets() {
-  $('tickets').innerHTML = tickets.map((t, i) => `
+  const cfg = loadCfg();
+  // показываем найденное, кроме совпадений с фильтром; уже добавленные талоны
+  // не удаляем — снятие подстроки сразу вернёт их в список
+  const rows = tickets.map((t, i) => ({ t, i }))
+    .filter(({ t }) => !isIgnored(cfg, t.spec, t.doc));
+  const hidden = tickets.length - rows.length;
+  const empty = '<span class="muted">пока ничего не найдено' +
+    (hidden ? ` (скрыто фильтром: ${hidden})` : '') + '</span>';
+  $('tickets').innerHTML = (rows.map(({ t, i }) => `
     <div class="trow">
       <span>${dowBadge(t.slot.visitStart)}<a href="${portalLink(t.tgt.districtId, t.tgt.lpuId, t.spec.id, t.doc.id)}" target="_blank" rel="noreferrer">${t.slot.visitStart.replace('T', ' ')} — ${t.doc.name} — ${t.spec.name} (ЛПУ ${t.tgt.lpuId})</a></span>
       <button data-i="${i}">Записаться</button>
-    </div>`).join('') || '<span class="muted">пока ничего не найдено</span>';
+    </div>`).join('') || empty) +
+    (rows.length && hidden ? `<div class="muted">скрыто фильтром: ${hidden}</div>` : '');
   $('tickets').querySelectorAll('button').forEach(b => b.onclick = async () => {
     const t = tickets[+b.dataset.i];
     if (!t) return;
@@ -937,6 +963,13 @@ function dropTicket(slotId) {
   tickets = tickets.filter(t => t.slot.id !== slotId);
   if (tickets.length !== n) renderTickets();
 }
+// фильтр: сохраняем на каждый ввод и сразу перерисовываем уже найденные талоны
+$('ignore').oninput = () => {
+  const cfg = normCfg();
+  cfg.ignores = $('ignore').value.split(',').map(s => s.trim()).filter(Boolean);
+  saveCfg(cfg);
+  renderTickets();
+};
 
 /* ---------- модалка успешной записи ---------- */
 const bookedClose = () => $('booked-popup').classList.add('hidden');
@@ -1053,12 +1086,19 @@ async function pollTarget(cfg, tgt) {
       const current = new Set(slots.map(s => s.id));
       const fresh = slots.filter(s => !seen.has(s.id))
                          .sort((a, b) => a.visitStart.localeCompare(b.visitStart));
-      if (fresh.length)
-        log(`НОВЫХ СЛОТОВ ${fresh.length}: ЛПУ ${tgt.lpuId} / ${spec.name} / ${doc.name} -> ` +
+      // фильтр по подстроке во враче/кабинете и специальности: совпавшие талоны
+      // не показываем, не уведомляем и не бронируем
+      const skip = isIgnored(cfg, spec, doc);
+      const wanted = skip ? [] : fresh;
+      if (skip && fresh.length)
+        log(`ИГНОР ${fresh.length}: ЛПУ ${tgt.lpuId} / ${spec.name} / ${doc.name} -> ` +
             fresh.map(s => s.visitStart.replace('T', ' ')).join(', '));
+      else if (wanted.length)
+        log(`НОВЫХ СЛОТОВ ${wanted.length}: ЛПУ ${tgt.lpuId} / ${spec.name} / ${doc.name} -> ` +
+            wanted.map(s => s.visitStart.replace('T', ' ')).join(', '));
       const keep = new Set();
-      for (const slot of fresh) {
-        addTicket(tgt, spec, doc, slot); // все найденные — в панель, кнопка справа
+      for (const slot of wanted) {
+        addTicket(tgt, spec, doc, slot); // найденные — в панель, кнопка справа
         if (!autobook) { notifySlot(tgt, spec, doc, slot); continue; }
         try { await book(tgt, spec, doc, slot); booked++; dropTicket(slot.id); }
         catch (e) {
@@ -1118,8 +1158,10 @@ $('toggle').onclick = () => {
     document.title = 'Горздрав — автозапись';
     // каждый старт сбрасывает дедупликацию: все текущие талоны объявятся заново
     for (const t of targetsOf(cfg)) resetSeen(t.lpuId);
+    const ign = Array.isArray(cfg.ignores) ? cfg.ignores : [];
     log(`мониторинг старт: ${targetsOf(cfg).length} ЛПУ, интервал ${cfg.interval}s, ` +
-        `автозапись: ${cfg.autobook ? 'ВКЛ' : 'выкл (только уведомление + ссылка)'}`);
+        `автозапись: ${cfg.autobook ? 'ВКЛ' : 'выкл (только уведомление + ссылка)'}` +
+        (ign.length ? `, игнор: ${ign.map(x => '«' + x + '»').join(', ')}` : ''));
     loopPromise = loop();
   }
 };
@@ -1219,6 +1261,8 @@ $('clear-log').onclick = () => { logLines = []; $('log').textContent = ''; };
   renderTargets();
   renderAutobook();
   $('p_interval').value = normCfg().interval || 10;
+  const savedIgnores = normCfg().ignores;
+  $('ignore').value = Array.isArray(savedIgnores) ? savedIgnores.join(', ') : '';
   try { await geoReady(); log('справочники загружены'); }
   catch (e) { log('init: ' + e.message); }
 })();
